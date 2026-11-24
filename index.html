@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GroupSync</title>
+<style>
+  /* Sticker look: chunky ink outlines, hard shadows, one colour per member */
+  :root{
+    color-scheme:light;
+    --bg:#eef7f3; --ink:#17213a; --card:#ffffff; --muted:#56627a; --soft:#e2eee9;
+    --coral:#ff6b57; --sun:#ffc233; --good:#12a57a; --good-soft:#d8f5ea; --bad:#d6343a; --bad-soft:#ffe3df; --warn-soft:#fff2cc;
+    --font:ui-rounded,"SF Pro Rounded","Nunito","Segoe UI",system-ui,Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;caret-color:transparent}   /* no blinking insertion point in normal text */
+  body{-webkit-user-select:none;user-select:none}     /* text can't be clicked into or highlighted */
+  input{caret-color:var(--ink);-webkit-user-select:text;user-select:text}   /* but the boxes people type in keep theirs */
+  html{background:var(--bg)}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.45;
+       padding:20px max(16px,env(safe-area-inset-right)) 56px max(16px,env(safe-area-inset-left))}
+  .page{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+  h1,h2,h3,p{margin:0}
+  button,input{font:inherit;color:inherit}
+  button{cursor:pointer}
+  button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
+
+  /* top bar */
+  .top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.3rem}
+  .logo{width:38px;height:38px;border-radius:12px;background:var(--sun);border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);
+        display:grid;place-items:center;font-weight:900}
+  .steps{display:flex;flex-wrap:wrap;gap:8px;font-size:.85rem;font-weight:700}
+  .steps span{padding:4px 12px;border-radius:999px;border:2px solid var(--ink);background:var(--card);color:var(--muted)}
+  .steps span.on{background:var(--ink);color:#fff}
+  .steps span.past{background:var(--soft);color:var(--ink)}
+
+  /* shared pieces */
+  .card{background:var(--card);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);padding:20px}
+  .btn{background:var(--coral);color:#fff;font-weight:800;border:3px solid var(--ink);border-radius:14px;padding:12px 22px;
+       box-shadow:0 4px 0 var(--ink);transition:transform .08s,box-shadow .08s}
+  .btn:hover:not(:disabled){transform:translateY(-1px)}
+  .btn:active:not(:disabled){transform:translateY(4px);box-shadow:0 0 0 var(--ink)}
+  .btn:disabled{background:#c9d3d0;color:#6b7a77;box-shadow:0 4px 0 #8c9a97;border-color:#8c9a97;cursor:not-allowed}
+  .btn.alt{background:var(--card);color:var(--ink)}
+  .btn.go{background:var(--good)}
+  .btn.warn{background:var(--sun);color:var(--ink)}
+  .btn.small{padding:8px 14px;font-size:.92rem;border-radius:12px}
+  .avatar{flex:none;width:52px;height:52px;border-radius:50%;border:3px solid var(--ink);display:grid;place-items:center;
+          font-weight:900;font-size:1.4rem;color:var(--ink)}
+  .avatar.sm{width:36px;height:36px;font-size:1rem}
+  .chip{display:inline-block;padding:2px 10px;border-radius:999px;border:2px solid var(--ink);background:var(--soft);font-weight:700;font-size:.8rem;white-space:nowrap}
+  .chip.pts{background:var(--sun)}
+  .muted{color:var(--muted)}
+  .center{text-align:center;align-items:center}
+  .stage-card{max-width:640px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:22px;padding:34px}
+  .q{font-size:clamp(1.7rem,5vw,2.4rem);line-height:1.15;font-weight:900;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:1.05rem}
+  input[type=text]{width:100%;background:#fff;border:3px solid var(--ink);border-radius:14px;padding:12px 14px;font-size:1.15rem;font-weight:700}
+  .err{color:var(--bad);font-weight:700}
+
+  /* household size */
+  .stepper{display:flex;align-items:center;justify-content:center;gap:22px}
+  .stepper .btn{width:56px;height:56px;padding:0;font-size:1.8rem;line-height:1}
+  .bignum{font-size:4.5rem;font-weight:900;min-width:2ch;line-height:1}
+  .crowd{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:36px}
+
+  /* names */
+  .dots{display:flex;gap:8px;justify-content:center}
+  .dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink);background:var(--card)}
+  .dots i.on{background:var(--ink)}
+  .name-form{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%}
+
+  /* chore picking */
+  .pick-head{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+  .pick-head .who{display:flex;gap:14px;align-items:center}
+  .chores{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+  .chore{position:relative;text-align:left;display:flex;flex-direction:column;gap:8px;background:var(--card);border:3px solid var(--ink);
+         border-radius:18px;padding:16px;box-shadow:4px 4px 0 var(--ink);transition:transform .08s}
+  .chore:hover:not(:disabled){transform:translate(-1px,-1px)}
+  .chore .icon{font-size:2rem;line-height:1}
+  .chore .nm{font-weight:800;font-size:1.05rem}
+  .chore .meta{display:flex;gap:6px;flex-wrap:wrap}
+  .chore.mine{background:var(--good-soft)}
+  .chore.mine::after{content:"Mine";position:absolute;top:10px;right:10px;background:var(--good);color:#fff;font-weight:800;font-size:.75rem;
+                     padding:2px 10px;border-radius:999px;border:2px solid var(--ink)}
+  .chore:disabled{background:var(--soft);box-shadow:none;cursor:not-allowed;color:var(--muted)}
+  .owner{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:.85rem}
+  .owner i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink);display:inline-block}
+  details.add{background:var(--card);border:3px dashed var(--ink);border-radius:18px;padding:14px 18px}
+  details.add summary{font-weight:800;cursor:pointer}
+  .add-form{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end;margin-top:14px}
+  .add-form label{display:flex;flex-direction:column;gap:4px;font-weight:700;font-size:.85rem}
+  @media (max-width:720px){.add-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.add-form label:first-child{grid-column:1/-1}}
+
+  /* board */
+  .board-top{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+  .board-top h2{font-size:1.8rem;font-weight:900}
+  .tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .seg{display:inline-flex;border:3px solid var(--ink);border-radius:12px;overflow:hidden;background:var(--card)}
+  .seg button{border:0;background:transparent;padding:7px 14px;font-weight:800}
+  .seg button.on{background:var(--ink);color:#fff}
+  .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;align-items:start}
+  .person{display:flex;flex-direction:column;gap:14px;padding:16px}
+  .person-head{display:flex;gap:12px;align-items:center}
+  .person-head .nm{font-weight:900;font-size:1.25rem}
+  .task{display:flex;flex-direction:column;gap:10px;padding:14px;border:3px solid var(--ink);border-radius:16px;background:#fbfffd}
+  .task-top{display:flex;gap:10px;align-items:center;justify-content:space-between}
+  .task-top .nm{font-weight:800}
+  .task.running{background:#eef4ff}
+  .task.done,.task.verified{background:var(--good-soft)}
+  .task.review{background:var(--warn-soft)}
+  .clock{font-size:2.2rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+  .track{position:relative;height:16px;border:3px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}
+  .fill{height:100%;background:var(--coral);width:0}
+  .mark{position:absolute;top:-3px;bottom:-3px;width:3px;background:var(--ink)}
+  .hint{font-size:.88rem;font-weight:700}
+  .hint.warn{color:#9a5b00}
+  .hint.ok{color:var(--good)}
+  .flag{border:3px solid var(--ink);border-radius:12px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+  .flag b{color:#9a5b00}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .empty{color:var(--muted);font-weight:700}
+  .endbox{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 16px;background:var(--warn-soft);border:3px solid var(--ink);border-radius:14px}
+
+  /* report */
+  .banner{display:flex;flex-direction:column;gap:6px;padding:26px;background:var(--sun)}
+  .banner h2{font-size:clamp(1.6rem,5vw,2.4rem);font-weight:900;line-height:1.1}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px}
+  .stat{display:flex;flex-direction:column;gap:2px;padding:16px}
+  .stat b{font-size:2rem;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat span{font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .rank{display:flex;flex-direction:column;gap:16px}
+  .rank-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center}
+  .rank-body{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .rank-line{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+  .rank-line .nm{font-weight:900;font-size:1.1rem}
+  .bar{position:relative;height:18px;border:3px solid var(--ink);border-radius:999px;background:var(--soft);overflow:hidden}
+  .bar i{position:absolute;left:0;top:0;bottom:0}
+  .pill{padding:3px 12px;border-radius:999px;border:2px solid var(--ink);font-weight:800;font-size:.85rem}
+  .pill.ok{background:var(--good-soft)}
+  .pill.no{background:var(--bad-soft)}
+  ul.plain{margin:8px 0 0;padding-left:20px}
+
+  .pop{animation:pop .25s ease-out}
+  @keyframes pop{from{transform:scale(.97);opacity:.4}to{transform:none;opacity:1}}
+  @media (prefers-reduced-motion:reduce){.pop{animation:none}.btn,.chore{transition:none}}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div class="brand"><div class="logo">G</div><span>GroupSync</span></div>
+    <nav class="steps" id="steps" aria-label="Progress"></nav>
+  </header>
+  <main id="stage"></main>
+</div>
+<noscript>GroupSync needs JavaScript. Please turn it on in your browser.</noscript>
+
+<script>
+"use strict";
+
+/* ---------- settings ---------- */
+const COLORS = ["#ff6b57", "#ffc233", "#2fd0bd", "#6f9bff", "#b48cff", "#ff8cc3", "#6fd36f", "#ffa04d"];
+const MIN_PEOPLE = 2, MAX_PEOPLE = 8;
+const MAX_PICKS = 8;          // most chores one person can take in a day
+const EARLY_RATIO = 0.5;      // finishing in less than half the usual time is "too early"
+const KEY = "groupsync.v1";
+const STEPS = ["Group", "Names", "Tasks", "Work session", "Results"];
+
+const BASE_CHORES = [
+  { id: "research", icon: "\uD83D\uDD0E", name: "Research the topic",         pts: 15, mins: 40 },
+  { id: "sources",  icon: "\uD83D\uDDBC\uFE0F", name: "Collect pictures and sources", pts: 5,  mins: 15 },
+  { id: "intro",    icon: "\u270D\uFE0F", name: "Write the introduction",      pts: 10, mins: 20 },
+  { id: "body",     icon: "\uD83D\uDCDD", name: "Write the main body",         pts: 20, mins: 45 },
+  { id: "concl",    icon: "\uD83C\uDFC1", name: "Write the conclusion",        pts: 10, mins: 15 },
+  { id: "slides",   icon: "\uD83D\uDDA5\uFE0F", name: "Make the slides",            pts: 20, mins: 40 },
+  { id: "poster",   icon: "\uD83C\uDFA8", name: "Design the poster",           pts: 20, mins: 45 },
+  { id: "script",   icon: "\uD83C\uDF99\uFE0F", name: "Write the speaking script",  pts: 15, mins: 30 },
+  { id: "edit",     icon: "\uD83E\uDDD0", name: "Proofread and edit",          pts: 10, mins: 25 },
+  { id: "props",    icon: "\u2702\uFE0F", name: "Prepare materials and props", pts: 10, mins: 30 },
+  { id: "video",    icon: "\uD83C\uDFAC", name: "Record the video",            pts: 20, mins: 40 },
+  { id: "practice", icon: "\uD83D\uDDE3\uFE0F", name: "Practise the presentation",  pts: 15, mins: 30 }
+];
+
+/* ---------- state ---------- */
+let S = freshState();
+function freshState() {
+  return { phase: "setup", people: [], chores: BASE_CHORES.map((c) => Object.assign({}, c)),
+           tasks: [], speed: 1, nextId: 1, ended: false, confirmEnd: false };
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (s && (s.phase === "board" || s.phase === "report") && Array.isArray(s.people)) { S = s; return true; }
+  } catch (e) {}
+  return false;
+}
+function clearSaved() { try { localStorage.removeItem(KEY); } catch (e) {} }
+
+/* ---------- tiny helpers ---------- */
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const k in (props || {})) {
+    const v = props[k];
+    if (k === "class") el.className = v;
+    else if (k === "style") el.style.cssText = v;
+    else if (k.slice(0, 2) === "on") el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  kids.flat().forEach((c) => { if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c))); });
+  return el;
+}
+function fmt(ms) { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+function initial(name) { const t = (name || "").trim(); return t ? t[0].toUpperCase() : "?"; }
+function avatar(name, color, small) {
+  return h("div", { class: "avatar" + (small ? " sm" : ""), style: "background:" + color }, initial(name));
+}
+function choreOf(id) { return S.chores.find((c) => c.id === id); }
+function elapsedMs(t) { return t.status === "running" ? (Date.now() - t.startedAt) * t.speed : (t.elapsed || 0); }
+function counts(t) { return t.status === "done" || t.status === "verified"; }
+function earned(p) { return S.tasks.filter((t) => t.person === p && counts(t)).reduce((s, t) => s + choreOf(t.choreId).pts, 0); }
+function planned(p) { return S.tasks.filter((t) => t.person === p).reduce((s, t) => s + choreOf(t.choreId).pts, 0); }
+
+/* ---------- screen engine: show() draws a screen and waits for emit() ---------- */
+const root = document.getElementById("stage");
+let resolver = null, currentBuild = null, currentStep = 0, currentSig = "", addOpen = false;
+const FOCUSABLE = "button,input,summary";
+function show(step, build, key) {
+  // a screen is "new" only when the step (or the person, via key) changes
+  const sig = step + ":" + (key == null ? "" : key);
+  const isNew = sig !== currentSig;
+  currentSig = sig; currentStep = step; currentBuild = build;
+  return new Promise((resolve) => { resolver = resolve; redraw(isNew); });
+}
+function redraw(animate) {
+  if (!currentBuild) return;
+  // remember scroll position and which control had focus, so a button press does not make the page jump
+  const y = window.scrollY;
+  const focusIndex = Array.prototype.indexOf.call(root.querySelectorAll(FOCUSABLE), document.activeElement);
+  const view = currentBuild();
+  if (animate === true) view.classList.add("pop");   // fade in only when a new screen appears
+  root.replaceChildren(view);
+  if (animate === true) {
+    const nav = document.getElementById("steps");
+    nav.replaceChildren(...STEPS.map((s, i) => h("span", { class: i === currentStep ? "on" : (i < currentStep ? "past" : "") }, s)));
+    window.scrollTo(0, 0);
+  } else {
+    window.scrollTo(0, y);
+    const again = root.querySelectorAll(FOCUSABLE)[focusIndex];
+    if (focusIndex >= 0 && again && !again.disabled) again.focus({ preventScroll: true });
+  }
+  tick();
+}
+function emit(value) { const r = resolver; resolver = null; if (r) r(value); }
+
+/* ---------- screens ---------- */
+function screenHowMany() {
+  let n = 4;
+  return show(0, () => {
+    // built once; the + and - buttons update it in place so nothing redraws or flickers
+    const crowd = h("div", { class: "crowd" });
+    const num = h("div", { class: "bignum", "aria-live": "polite" });
+    const minus = h("button", { class: "btn alt", type: "button", "aria-label": "One less person", onclick: () => change(-1) }, "−");
+    const plus = h("button", { class: "btn alt", type: "button", "aria-label": "One more person", onclick: () => change(1) }, "+");
+    const update = () => {
+      num.textContent = n;
+      minus.disabled = n <= MIN_PEOPLE;
+      plus.disabled = n >= MAX_PEOPLE;
+      while (crowd.children.length < n) crowd.append(h("div", { class: "avatar sm", style: "background:" + COLORS[crowd.children.length] }, "?"));
+      while (crowd.children.length > n) crowd.lastElementChild.remove();
+    };
+    const change = (d) => { n = Math.max(MIN_PEOPLE, Math.min(MAX_PEOPLE, n + d)); update(); };
+    update();
+    return h("section", { class: "card stage-card center" },
+      h("h1", { class: "q" }, "Hi there! How many members are in your group?"),
+      h("p", { class: "sub" }, "Count everyone assigned to the group task, including you."),
+      h("div", { class: "stepper" }, minus, num, plus),
+      crowd,
+      h("button", { class: "btn", type: "button", onclick: () => emit(n) }, "That’s us!"),
+      h("p", { class: "muted" }, "From " + MIN_PEOPLE + " to " + MAX_PEOPLE + " members."));
+  });
+}
+
+function screenName(p, n, problem) {
+  let value = "";
+  return show(1, () => {
+    const input = h("input", { type: "text", id: "nm", maxlength: "16", placeholder: "Type your name", autocomplete: "off", value: value, "aria-label": "Your name" });
+    const av = avatar(value, COLORS[p - 1]);
+    const go = h("button", { class: "btn", type: "submit", disabled: value.trim() === "" }, p < n ? "Nice to meet you!" : "That’s everyone!");
+    input.addEventListener("input", () => {
+      value = input.value;
+      av.textContent = initial(value);
+      go.disabled = value.trim() === "";
+    });
+    const form = h("form", { class: "name-form", onsubmit: (e) => { e.preventDefault(); if (value.trim() !== "") emit(value.trim()); } },
+      av, input, problem ? h("p", { class: "err", role: "alert" }, problem) : null, go);
+    setTimeout(() => input.focus(), 0);
+    return h("section", { class: "card stage-card center" },
+      h("h1", { class: "q" }, p === 1 ? "Great! Let’s meet the group. What’s your name?" : "Member " + p + ", what’s your name?"),
+      h("p", { class: "sub" }, "Person " + p + " of " + n),
+      form,
+      h("div", { class: "dots", "aria-hidden": "true" }, Array.from({ length: n }, (_, i) => h("i", { class: i < p ? "on" : "" }))));
+  });
+}
+
+// returns {type:"pick"|"unpick", id} or {type:"done"}
+function screenPick(p, count, note) {
+  return show(2, () => {
+    const me = S.people[p];
+    const myTasks = S.tasks.filter((t) => t.person === p);
+    const pts = myTasks.reduce((s, t) => s + choreOf(t.choreId).pts, 0);
+
+    const cards = S.chores.map((c) => {
+      const owner = S.tasks.find((t) => t.choreId === c.id);
+      const meta = h("div", { class: "meta" }, h("span", { class: "chip pts" }, c.pts + " pts"), h("span", { class: "chip" }, "~" + c.mins + " min"));
+      const body = [h("span", { class: "icon", "aria-hidden": "true" }, c.icon), h("span", { class: "nm" }, c.name), meta];
+      if (owner && owner.person !== p) {
+        const o = S.people[owner.person];
+        body.push(h("span", { class: "owner" }, h("i", { style: "background:" + o.color }), "Taken by " + o.name));
+        return h("button", { class: "chore", type: "button", disabled: true }, body);
+      }
+      if (owner) return h("button", { class: "chore mine", type: "button", "aria-pressed": "true", onclick: () => emit({ type: "unpick", id: c.id }) }, body);
+      return h("button", { class: "chore", type: "button", "aria-pressed": "false", onclick: () => emit({ type: "pick", id: c.id }) }, body);
+    });
+
+    // add your own chore (does not end the pick loop, it just redraws)
+    const f = {};
+    const err = h("p", { class: "err", role: "alert" });
+    const addChore = (e) => {
+      e.preventDefault();
+      const name = f.name.value.trim(), pt = parseInt(f.pts.value, 10), mn = parseInt(f.mins.value, 10);
+      if (name === "") { err.textContent = "Give the task a name."; return; }
+      if (!(pt >= 1 && pt <= 50)) { err.textContent = "Points must be a number from 1 to 50."; return; }
+      if (!(mn >= 1 && mn <= 180)) { err.textContent = "Minutes must be a number from 1 to 180."; return; }
+      S.chores.push({ id: "c" + (S.nextId++), icon: "⭐", name: name, pts: pt, mins: mn });
+      redraw();
+    };
+    const addForm = h("form", { class: "add-form", onsubmit: addChore },
+      h("label", null, "Task name", (f.name = h("input", { type: "text", maxlength: "28", placeholder: "Make the cover page" }))),
+      h("label", null, "Points", (f.pts = h("input", { type: "text", inputmode: "numeric", value: "10" }))),
+      h("label", null, "Minutes", (f.mins = h("input", { type: "text", inputmode: "numeric", value: "10" }))),
+      h("button", { class: "btn small", type: "submit" }, "Add task"));
+
+    // keep the "add your own chore" box open or closed the way the person left it
+    const addBox = h("details", { class: "add", ontoggle: () => { addBox.open && (addOpen = true); !addBox.open && (addOpen = false); } },
+      h("summary", null, "Don’t see your task? Add your own"), addForm, err);
+    addBox.open = addOpen;
+
+    return h("section", { class: "stage", style: "display:flex;flex-direction:column;gap:20px" },
+      h("div", { class: "pick-head" },
+        h("div", { class: "who" }, avatar(me.name, me.color),
+          h("div", null, h("h1", { class: "q" }, me.name + ", which tasks will you take?"),
+            h("p", { class: "sub" }, "Tap the tasks you will do for this project. Tap again to put one back."))),
+        h("div", { class: "row" },
+          h("span", { class: "chip pts" }, count + " of " + MAX_PICKS + " picked"),
+          h("span", { class: "chip" }, pts + " pts planned"),
+          h("button", { class: "btn go", type: "button", onclick: () => emit({ type: "done" }) }, "I’m done picking"))),
+      note ? h("p", { class: "err", role: "alert" }, note) : null,
+      h("div", { class: "chores" }, cards),
+      addBox);
+  }, p);
+}
+
+function taskCard(t) {
+  const c = choreOf(t.choreId);
+  const anyRunning = S.tasks.some((x) => x.person === t.person && x.status === "running");
+  const head = h("div", { class: "task-top" },
+    h("span", { class: "nm" }, c.icon + " " + c.name),
+    h("span", { class: "row" }, h("span", { class: "chip pts" }, c.pts + " pts"), h("span", { class: "chip" }, "~" + c.mins + " min")));
+  const need = c.mins * 60000 * EARLY_RATIO;
+  let body;
+
+  if (t.status === "todo") {
+    body = [anyRunning
+      ? h("p", { class: "hint warn" }, "Finish the task you started first.")
+      : h("p", { class: "hint muted" }, "Press start when you begin. Finishing in under " + fmt(need) + " gets flagged."),
+      h("div", { class: "row" }, h("button", { class: "btn small", type: "button", disabled: anyRunning, onclick: () => emit({ type: "start", id: t.id }) }, "Start timer"))];
+  } else if (t.status === "running") {
+    body = [h("div", { class: "clock", "data-t": t.id }, fmt(elapsedMs(t))),
+      h("div", { class: "track", role: "img", "aria-label": "Time compared with the usual " + c.mins + " minutes" },
+        h("div", { class: "fill", "data-bar": t.id }), h("i", { class: "mark", style: "left:" + (EARLY_RATIO * 100) + "%" })),
+      h("p", { class: "hint", "data-hint": t.id }),
+      h("div", { class: "row" }, h("button", { class: "btn small go", type: "button", onclick: () => emit({ type: "finish", id: t.id }) }, "I’m done!"))];
+  } else if (t.status === "review") {
+    const others = S.people.map((p, i) => ({ p: p, i: i })).filter((o) => o.i !== t.person);
+    body = [h("div", { class: "flag" },
+      h("p", null, h("b", null, "Too early! "), "You finished in " + fmt(t.elapsed) + ". This task usually takes about " + c.mins + " minutes."),
+      t.confirming
+        ? h("div", { class: "row" }, h("span", { class: "hint" }, "Who checked it?"),
+            others.map((o) => h("button", { class: "btn small alt", type: "button", onclick: () => emit({ type: "confirm", id: t.id, by: o.i }) }, o.p.name)),
+            h("button", { class: "btn small alt", type: "button", onclick: () => emit({ type: "cancelConfirm", id: t.id }) }, "Cancel"))
+        : h("div", { class: "row" },
+            h("button", { class: "btn small warn", type: "button", onclick: () => emit({ type: "askConfirm", id: t.id }) }, "A teammate checked it"),
+            h("button", { class: "btn small alt", type: "button", onclick: () => emit({ type: "redo", id: t.id }) }, "Redo it")),
+      h("p", { class: "hint muted" }, "No points until a teammate confirms it is really done."))];
+  } else if (t.status === "done") {
+    body = [h("p", { class: "hint ok" }, "Done in " + fmt(t.elapsed) + ". +" + c.pts + " pts")];
+  } else {
+    body = [h("p", { class: "hint ok" }, "Confirmed by " + S.people[t.by].name + " (finished early in " + fmt(t.elapsed) + "). +" + c.pts + " pts")];
+  }
+  return h("div", { class: "task " + t.status }, head, body);
+}
+
+function screenBoard() {
+  return show(3, () => {
+    const people = S.people.map((p, i) => {
+      const mine = S.tasks.filter((t) => t.person === i);
+      return h("section", { class: "card person" },
+        h("div", { class: "person-head" }, avatar(p.name, p.color),
+          h("div", null, h("div", { class: "nm" }, p.name), h("div", { class: "muted" }, earned(i) + " of " + planned(i) + " pts earned"))),
+        mine.length === 0 ? h("p", { class: "empty" }, "No tasks picked yet.") : mine.map(taskCard));
+    });
+    const endArea = S.confirmEnd
+      ? h("div", { class: "endbox" }, h("b", null, "End the session now? Unfinished tasks will not count."),
+          h("button", { class: "btn small", type: "button", onclick: () => emit({ type: "end" }) }, "Yes, show results"),
+          h("button", { class: "btn small alt", type: "button", onclick: () => emit({ type: "cancelEnd" }) }, "Keep going"))
+      : h("button", { class: "btn alt small", type: "button", onclick: () => emit({ type: "askEnd" }) }, "End the session");
+    return h("div", { style: "display:flex;flex-direction:column;gap:22px" },
+      h("div", { class: "board-top" },
+        h("div", null, h("h2", null, "Work session board"), h("p", { class: "sub" }, "Start the timer when you begin a task, then press done.")),
+        h("div", { class: "tools" },
+          h("span", { class: "muted", style: "font-weight:800" }, "Clock"),
+          h("div", { class: "seg", role: "group", "aria-label": "Clock speed" },
+            h("button", { type: "button", class: S.speed === 1 ? "on" : "", "aria-pressed": String(S.speed === 1), onclick: () => emit({ type: "speed", value: 1 }) }, "Real time"),
+            h("button", { type: "button", class: S.speed === 30 ? "on" : "", "aria-pressed": String(S.speed === 30), onclick: () => emit({ type: "speed", value: 30 }) }, "Demo ×30")),
+          endArea)),
+      h("div", { class: "people" }, people));
+  });
+}
+
+function screenReport() {
+  return show(4, () => {
+    const n = S.people.length;
+    const pts = S.people.map((_, i) => earned(i));
+    const total = pts.reduce((a, b) => a + b, 0);
+    const avg = total / n;
+    const best = Math.max.apply(null, pts);
+    const tops = S.people.filter((_, i) => pts[i] === best && best > 0).map((p) => p.name);
+    const maxPlan = Math.max(1, Math.max.apply(null, S.people.map((_, i) => planned(i))));
+    const rushed = S.tasks.filter((t) => t.status === "verified" || t.status === "review").length;
+    const open = S.tasks.filter((t) => !counts(t));
+
+    const order = S.people.map((p, i) => i).sort((a, b) => pts[b] - pts[a]);
+    const rows = order.map((i) => {
+      const p = S.people[i], mine = S.tasks.filter((t) => t.person === i);
+      const ok = pts[i] >= avg;
+      return h("div", { class: "rank-row" }, avatar(p.name, p.color),
+        h("div", { class: "rank-body" },
+          h("div", { class: "rank-line" },
+            h("span", { class: "nm" }, p.name),
+            h("span", { class: "muted" }, mine.filter(counts).length + " of " + mine.length + " tasks done · " + pts[i] + " pts"),
+            h("span", { class: "pill " + (ok ? "ok" : "no") }, ok ? "Fair share met" : "Needs to contribute more")),
+          h("div", { class: "bar", role: "img", "aria-label": p.name + " earned " + pts[i] + " of " + planned(i) + " planned points" },
+            h("i", { style: "width:" + (planned(i) / maxPlan * 100) + "%;background:" + p.color + "55" }),
+            h("i", { style: "width:" + (pts[i] / maxPlan * 100) + "%;background:" + p.color }))));
+    });
+
+    return h("div", { style: "display:flex;flex-direction:column;gap:22px" },
+      h("section", { class: "card banner" },
+        h("p", { class: "muted", style: "font-weight:800;color:var(--ink)" }, "Session results"),
+        h("h2", null, tops.length === 0 ? "Nobody finished a task yet" : (tops.length === 1 ? tops[0] + " is the top contributor!" : tops.join(" and ") + " tie as top contributors!")),
+        tops.length ? h("p", null, best + " points earned.") : null),
+      h("div", { class: "stats" },
+        h("div", { class: "card stat" }, h("b", null, total), h("span", null, "Total points")),
+        h("div", { class: "card stat" }, h("b", null, avg.toFixed(2)), h("span", null, "Fair share each")),
+        h("div", { class: "card stat" }, h("b", null, S.tasks.filter(counts).length + "/" + S.tasks.length), h("span", null, "Tasks done")),
+        h("div", { class: "card stat" }, h("b", null, rushed), h("span", null, "Flagged as too early"))),
+      h("section", { class: "card rank" }, h("h3", null, "Scoreboard"), rows,
+        h("p", { class: "muted" }, "Dark bar = points earned. Light bar = points planned.")),
+      open.length
+        ? h("section", { class: "card" }, h("h3", null, "Not finished"),
+            h("ul", { class: "plain" }, open.map((t) => h("li", null, S.people[t.person].name + ": " + choreOf(t.choreId).name +
+              (t.status === "review" ? " (finished too early, never confirmed)" : "")))))
+        : null,
+      h("div", null, h("button", { class: "btn", type: "button", onclick: () => emit("new") }, "Start a new session")));
+  });
+}
+
+/* ---------- the timer display ---------- */
+function tick() {
+  document.querySelectorAll("[data-t]").forEach((el) => {
+    const t = S.tasks.find((x) => String(x.id) === el.getAttribute("data-t"));
+    if (t && t.status === "running") el.textContent = fmt(elapsedMs(t));
+  });
+  document.querySelectorAll("[data-bar]").forEach((el) => {
+    const t = S.tasks.find((x) => String(x.id) === el.getAttribute("data-bar"));
+    if (!t) return;
+    const c = choreOf(t.choreId);
+    el.style.width = Math.min(100, elapsedMs(t) / (c.mins * 60000) * 100) + "%";
+  });
+  document.querySelectorAll("[data-hint]").forEach((el) => {
+    const t = S.tasks.find((x) => String(x.id) === el.getAttribute("data-hint"));
+    if (!t) return;
+    const need = choreOf(t.choreId).mins * 60000 * EARLY_RATIO;
+    if (elapsedMs(t) < need) { el.textContent = "Finish before " + fmt(need) + " and a teammate has to confirm it."; el.className = "hint warn"; }
+    else { el.textContent = "Good pace. You can finish now."; el.className = "hint ok"; }
+  });
+}
+setInterval(tick, 250);
+
+/* ---------- the program: FOR and WHILE loops ---------- */
+async function dayLoop() {
+  // WHILE: the day goes on until every chore is done or someone ends the day
+  while (!dayOver()) {
+    save();
+    const ev = await screenBoard();
+    const t = S.tasks.find((x) => x.id === ev.id);
+    if (ev.type === "start") {
+      if (t && t.status === "todo" && !S.tasks.some((x) => x.person === t.person && x.status === "running")) {
+        t.status = "running"; t.startedAt = Date.now(); t.speed = S.speed;
+      }
+    } else if (ev.type === "finish") {
+      if (t && t.status === "running") {
+        t.elapsed = elapsedMs(t);
+        // the timer check: too early if less than half of the usual time
+        t.status = t.elapsed < choreOf(t.choreId).mins * 60000 * EARLY_RATIO ? "review" : "done";
+      }
+    } else if (ev.type === "askConfirm") { t.confirming = true; }
+    else if (ev.type === "cancelConfirm") { t.confirming = false; }
+    else if (ev.type === "confirm") { t.status = "verified"; t.by = ev.by; t.confirming = false; }
+    else if (ev.type === "redo") { t.status = "todo"; t.elapsed = 0; t.confirming = false; t.redos = (t.redos || 0) + 1; }
+    else if (ev.type === "speed") { S.speed = ev.value; }
+    else if (ev.type === "askEnd") { S.confirmEnd = true; }
+    else if (ev.type === "cancelEnd") { S.confirmEnd = false; }
+    else if (ev.type === "end") { S.ended = true; }
+  }
+}
+function dayOver() {
+  return S.ended || S.tasks.length === 0 || S.tasks.every(counts);
+}
+
+async function app() {
+  S = freshState();
+
+  // how many people?
+  const n = await screenHowMany();
+
+  // FOR: ask each person's name
+  for (let p = 1; p <= n; p++) {
+    let nm = await screenName(p, n, "");
+    // WHILE: keep asking while the name is already taken
+    while (S.people.some((x) => x.name.toLowerCase() === nm.toLowerCase())) {
+      nm = await screenName(p, n, "Someone already uses that name. Try another one.");
+    }
+    S.people.push({ name: nm, color: COLORS[p - 1] });
+  }
+
+  // FOR: each person picks chores for the whole day
+  for (let p = 0; p < n; p++) {
+    let count = 0, note = "";
+    let ev = await screenPick(p, count, note);
+    // WHILE: keep picking until "I'm done" or the daily limit
+    while (ev.type !== "done" && count < MAX_PICKS) {
+      if (ev.type === "pick") {
+        if (!S.tasks.some((t) => t.choreId === ev.id)) {
+          S.tasks.push({ id: S.nextId++, person: p, choreId: ev.id, status: "todo", elapsed: 0, redos: 0 });
+          count++;
+        }
+      } else if (ev.type === "unpick") {
+        S.tasks = S.tasks.filter((t) => !(t.choreId === ev.id && t.person === p));
+        count--;
+      }
+      if (count < MAX_PICKS) ev = await screenPick(p, count, note);
+    }
+  }
+
+  // the day: timers and checks
+  S.phase = "board";
+  await dayLoop();
+
+  // results
+  S.phase = "report";
+  save();
+  return finish();
+}
+
+async function finish() {
+  await screenReport();
+  clearSaved();
+  return app();
+}
+
+/* ---------- start ---------- */
+if (load()) {
+  (async () => {
+    if (S.phase === "board") { await dayLoop(); S.phase = "report"; save(); }
+    return finish();
+  })();
+} else {
+  app();
+}
+</script>
+</body>
+</html>
